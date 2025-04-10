@@ -375,7 +375,7 @@ function startGame() {
   // Usar a URL do WebSocket do ambiente ou fallback para localhost
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname;
-  const wsUrl = `${protocol}//${host}/ws`;
+  const wsUrl = `${protocol}//${host}`;
   
   socket = new WebSocket(wsUrl);
 
