@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Flapburd</title>
   <link rel="stylesheet" href="css/styles.css">
+  <script>
+    // Configurar URL do WebSocket baseado na variável de ambiente
+    window.WEBSOCKET_URL = '<%= process.env.WEBSOCKET_URL %>' || 'ws://localhost:8080';
+  </script>
 </head>
 <body>
   <div id="startScreen">

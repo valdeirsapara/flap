@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    networks:
+      - flap-network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - websocket
+    networks:
+      - flap-network
+    environment:
+      - WEBSOCKET_URL=ws://websocket:8080
+
+networks:
+  flap-network:
+    driver: bridge 

@@ -259,7 +259,9 @@ function startGame() {
   startScreen.style.display = "none";
   canvas.style.display = "block";
 
-  socket = new WebSocket('wss://quetzal-touched-jolly.ngrok-free.app');
+  // Usar a URL do WebSocket do ambiente ou fallback para localhost
+  const wsUrl = window.WEBSOCKET_URL || 'ws://localhost:8080';
+  socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {
     console.log('Conectado ao servidor');
