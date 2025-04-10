@@ -12,30 +12,65 @@ const GAME_CONFIG = {
   MAX_PIPE_HEIGHT: 400, // Altura máxima do cano
   MIN_GAP_HEIGHT: 100,  // Altura mínima do espaço entre canos
   MAX_GAP_HEIGHT: 200,  // Altura máxima do espaço entre canos
-  RENDER_DISTANCE: 1000 // Distância de renderização à frente do jogador
+  RENDER_DISTANCE: 1000, // Distância de renderização à frente do jogador
+  UPDATE_RATE: 30       // Taxa de atualização do servidor (ms)
 };
 
 let players = {};
 let gameState = {
   pipes: [],
   lastPipeX: 300,
-  maxPipeId: 0,
-  topPlayers: [] // Array para armazenar top jogadores
+  maxPipeId: 0
 };
 
-// Função para atualizar o ranking
-function updateTopPlayers() {
-  const playerArray = Object.entries(players).map(([id, player]) => ({
-    id,
-    name: player.name,
-    score: player.score
-  }));
+// Cache para armazenar o último estado enviado para cada jogador
+const playerStates = new Map();
 
-  // Ordenar por pontuação (maior para menor)
-  playerArray.sort((a, b) => b.score - a.score);
+// Sistema de ranking
+const MAX_TOP_PLAYERS = 10;
+let topPlayers = [];
 
-  // Pegar os top 3
-  gameState.topPlayers = playerArray.slice(0, 3);
+function updateTopPlayers(playerId, score, name) {
+  // Remover jogador se já existir no ranking
+  topPlayers = topPlayers.filter(p => p.id !== playerId);
+  
+  // Adicionar nova pontuação
+  topPlayers.push({
+    id: playerId,
+    name: name,
+    score: score,
+    timestamp: Date.now()
+  });
+  
+  // Ordenar por pontuação (maior primeiro) e limitar ao máximo
+  topPlayers.sort((a, b) => b.score - a.score);
+  topPlayers = topPlayers.slice(0, MAX_TOP_PLAYERS);
+}
+
+// Função para limpar jogadores inativos
+function cleanupInactivePlayers() {
+  const now = Date.now();
+  Object.keys(players).forEach(id => {
+    const lastUpdate = playerStates.get(id)?.lastUpdate || 0;
+    if (now - lastUpdate > 10000) { // 10 segundos sem atualização
+      console.log(`Removendo jogador inativo: ${id}`);
+      delete players[id];
+      playerStates.delete(id);
+    }
+  });
+}
+
+// Limpar jogadores inativos a cada 30 segundos
+setInterval(cleanupInactivePlayers, 30000);
+
+// Função otimizada para broadcast
+function broadcast(message, excludeId = null) {
+  const data = JSON.stringify(message);
+  server.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && client.playerId !== excludeId) {
+      client.send(data);
+    }
+  });
 }
 
 // Gerar um novo cano
@@ -69,103 +104,130 @@ function generateInitialPipes() {
 // Atualizar estado do jogo
 function updateGameState() {
   // Remover canos que já passaram
-  gameState.pipes = gameState.pipes.filter(pipe => pipe.x > -GAME_CONFIG.PIPE_WIDTH);
+  const minX = Math.min(...Object.values(players).map(p => p.worldX)) - 1000;
+  gameState.pipes = gameState.pipes.filter(pipe => pipe.x > minX);
 }
 
 // Gerar canos iniciais
 generateInitialPipes();
+
+// Função para criar estado otimizado para envio
+function createOptimizedState(playerId) {
+  const player = players[playerId];
+  if (!player) return null;
+
+  // Filtrar apenas os canos próximos ao jogador
+  const relevantPipes = gameState.pipes.filter(pipe => 
+    Math.abs(pipe.x - player.worldX) < GAME_CONFIG.RENDER_DISTANCE
+  );
+
+  // Filtrar apenas jogadores próximos
+  const nearbyPlayers = {};
+  Object.entries(players).forEach(([id, p]) => {
+    if (id !== playerId && Math.abs(p.worldX - player.worldX) < GAME_CONFIG.RENDER_DISTANCE) {
+      nearbyPlayers[id] = p;
+    }
+  });
+
+  return {
+    type: 'state',
+    players: nearbyPlayers,
+    gameState: {
+      ...gameState,
+      pipes: relevantPipes
+    },
+    topPlayers
+  };
+}
 
 server.on('connection', (socket) => {
   console.log('Novo jogador conectado.');
   let playerId = null;
 
   socket.on('message', (message) => {
-    const data = JSON.parse(message);
+    try {
+      const data = JSON.parse(message);
 
-    if (data.type === 'init') {
-      playerId = `player_${Math.random().toString(36).substr(2, 9)}`;
-      players[playerId] = {
-        name: data.name,
-        worldX: data.x,
-        y: data.y,
-        score: 0,
-        isDead: data.isDead || false,
-        bestScore: 0 // Adicionar melhor pontuação
-      };
+      if (data.type === 'init') {
+        playerId = `player_${Math.random().toString(36).substr(2, 9)}`;
+        socket.playerId = playerId; // Armazenar ID no socket
+        players[playerId] = {
+          name: data.name,
+          worldX: data.x,
+          y: data.y,
+          score: 0,
+          isDead: false
+        };
 
-      updateTopPlayers();
+        playerStates.set(playerId, {
+          lastUpdate: Date.now()
+        });
 
-      socket.send(
-        JSON.stringify({
+        socket.send(JSON.stringify({
           type: 'init',
           playerId,
           players,
           gameState
-        })
-      );
+        }));
 
-      broadcast(
-        JSON.stringify({
-          type: 'state',
-          players,
-          gameState
-        })
-      );
-    } else if (data.type === 'update') {
-      if (players[playerId]) {
+      } else if (data.type === 'update' && playerId && players[playerId]) {
         players[playerId].worldX = data.x;
         players[playerId].y = data.y;
         players[playerId].score = data.score;
         players[playerId].isDead = data.isDead;
 
-        // Atualizar melhor pontuação se necessário
-        if (data.score > players[playerId].bestScore) {
-          players[playerId].bestScore = data.score;
-        }
+        playerStates.set(playerId, {
+          lastUpdate: Date.now()
+        });
 
         // Gerar novos canos se necessário
-        const playerX = data.x;
-        const lastPipeX = gameState.lastPipeX;
-        
-        if (playerX > lastPipeX - GAME_CONFIG.RENDER_DISTANCE) {
+        if (data.x > gameState.lastPipeX - GAME_CONFIG.RENDER_DISTANCE) {
           generateNewPipe();
         }
 
         updateGameState();
-        updateTopPlayers();
 
-        broadcast(
-          JSON.stringify({
-            type: 'state',
-            players,
-            gameState
-          })
-        );
+        // Atualizar ranking quando houver mudança na pontuação
+        if (data.score !== undefined) {
+          updateTopPlayers(playerId, data.score, players[playerId].name);
+        }
+
+        // Enviar estado otimizado para cada jogador
+        const optimizedState = createOptimizedState(playerId);
+        if (optimizedState) {
+          broadcast(optimizedState, playerId);
+        }
       }
+    } catch (error) {
+      console.error('Erro ao processar mensagem:', error);
     }
   });
 
   socket.on('close', () => {
-    console.log(`Jogador ${playerId} desconectado.`);
-    delete players[playerId];
-    updateTopPlayers();
+    if (playerId) {
+      console.log(`Jogador ${playerId} desconectado.`);
+      delete players[playerId];
+      playerStates.delete(playerId);
+      broadcast({ type: 'state', players, gameState });
+    }
+  });
 
-    broadcast(
-      JSON.stringify({
-        type: 'state',
-        players,
-        gameState
-      })
-    );
+  socket.on('error', (error) => {
+    console.error('Erro no WebSocket:', error);
   });
 });
 
-function broadcast(message) {
-  server.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+// Enviar atualizações em intervalos regulares
+setInterval(() => {
+  Object.keys(players).forEach(playerId => {
+    const optimizedState = createOptimizedState(playerId);
+    if (optimizedState) {
+      const client = Array.from(server.clients).find(c => c.playerId === playerId);
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(optimizedState));
+      }
     }
   });
-}
+}, GAME_CONFIG.UPDATE_RATE);
 
 console.log('Servidor WebSocket rodando na porta 8080.');

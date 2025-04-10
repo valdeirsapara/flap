@@ -35,6 +35,16 @@ let playerId = null;
 let otherPlayers = {};
 let gameState = null;  // Estado global do jogo recebido do servidor
 
+// Otimização de renderização
+const RENDER_CONFIG = {
+  PLAYER_CACHE_TIME: 100, // Tempo em ms para cache de posição de outros jogadores
+  VIEWPORT_PADDING: 100,  // Pixels extras além da viewport para renderização
+  MAX_PLAYERS_RENDERED: 10 // Número máximo de jogadores renderizados simultaneamente
+};
+
+// Cache de posições de outros jogadores
+const playerPositionCache = new Map();
+
 const bird = {
   x: 50,
   y: 150,
@@ -126,33 +136,35 @@ const bird = {
 function drawPipes() {
   if (!gameStarted || !gameState) return;
   
-  gameState.pipes.forEach(pipe => {
-    // Não mover os canos até o jogo começar
+  const visiblePipes = gameState.pipes.filter(pipe => {
+    const screenX = bird.hasStarted ? pipe.x - WORLD.viewportX : pipe.x;
+    return screenX > -pipe.width - RENDER_CONFIG.VIEWPORT_PADDING && 
+           screenX < canvas.width + RENDER_CONFIG.VIEWPORT_PADDING;
+  });
+  
+  visiblePipes.forEach(pipe => {
     const screenX = bird.hasStarted ? pipe.x - WORLD.viewportX : pipe.x;
     
-    // Só desenhar canos que estão visíveis na tela
-    if (screenX > -pipe.width && screenX < canvas.width) {
-      // Desenhar cano superior
-      ctx.fillStyle = "#75c32c";
-      ctx.fillRect(screenX, 0, pipe.width, pipe.top);
-      
-      // Borda do cano superior
-      ctx.fillStyle = "#557821";
-      ctx.fillRect(screenX - 2, pipe.top - 20, pipe.width + 4, 20);
-      
-      // Desenhar cano inferior
-      ctx.fillStyle = "#75c32c";
-      ctx.fillRect(screenX, pipe.top + pipe.gapHeight, pipe.width, canvas.height - (pipe.top + pipe.gapHeight));
-      
-      // Borda do cano inferior
-      ctx.fillStyle = "#557821";
-      ctx.fillRect(screenX - 2, pipe.top + pipe.gapHeight, pipe.width + 4, 20);
+    // Desenhar cano superior
+    ctx.fillStyle = "#75c32c";
+    ctx.fillRect(screenX, 0, pipe.width, pipe.top);
+    
+    // Borda do cano superior
+    ctx.fillStyle = "#557821";
+    ctx.fillRect(screenX - 2, pipe.top - 20, pipe.width + 4, 20);
+    
+    // Desenhar cano inferior
+    ctx.fillStyle = "#75c32c";
+    ctx.fillRect(screenX, pipe.top + pipe.gapHeight, pipe.width, 
+                canvas.height - (pipe.top + pipe.gapHeight));
+    
+    // Borda do cano inferior
+    ctx.fillStyle = "#557821";
+    ctx.fillRect(screenX - 2, pipe.top + pipe.gapHeight, pipe.width + 4, 20);
 
-      // Se o cano já foi passado, desenhar uma pequena marca
-      if (pipe.passed) {
-        ctx.fillStyle = "#FFD700";
-        ctx.fillRect(screenX + pipe.width - 5, pipe.top + pipe.gapHeight/2, 5, 5);
-      }
+    if (pipe.passed) {
+      ctx.fillStyle = "#FFD700";
+      ctx.fillRect(screenX + pipe.width - 5, pipe.top + pipe.gapHeight/2, 5, 5);
     }
   });
 }
@@ -224,7 +236,7 @@ function drawScore() {
     ctx.textAlign = "left";
     ctx.fillText("Top 3:", 10, 30);
     
-    gameState.topPlayers.forEach((player, index) => {
+    gameState.topPlayers.slice(0, 3).forEach((player, index) => {
       const rankColor = index === 0 ? "#FFD700" : // Ouro
                        index === 1 ? "#C0C0C0" : // Prata
                        "#CD7F32";                 // Bronze
@@ -238,63 +250,98 @@ function drawScore() {
 function drawOtherPlayers() {
   if (!gameStarted || !socket) return;
   
+  const now = Date.now();
+  const visiblePlayers = [];
+  
+  // Filtrar jogadores visíveis e próximos
   for (const id in otherPlayers) {
     if (id !== playerId) {
       const player = otherPlayers[id];
-      // Só desenhar jogadores que estão vivos
-      if (player && player.worldX !== undefined && player.y !== undefined && !player.isDead) {
-        // Converter coordenada do mundo para coordenada da tela
+      if (player && !player.isDead) {
         const screenX = bird.hasStarted ? player.worldX - WORLD.viewportX : player.worldX;
         
-        // Só desenhar jogadores visíveis na tela
-        if (screenX > -20 && screenX < canvas.width) {
-          // Desenhar pássaro do outro jogador
-          const gradient = ctx.createRadialGradient(
-            screenX + bird.w/2, player.y + bird.h/2, 0,
-            screenX + bird.w/2, player.y + bird.h/2, bird.w
-          );
-          gradient.addColorStop(0, "#4169E1"); // Azul royal
-          gradient.addColorStop(1, "#1E90FF"); // Azul dodger
-          
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.ellipse(
-            screenX + bird.w/2,
-            player.y + bird.h/2,
-            bird.w/2,
-            bird.h/2,
-            0,
-            0,
-            Math.PI * 2
-          );
-          ctx.fill();
-          
-          // Olho do pássaro
-          ctx.fillStyle = "black";
-          ctx.beginPath();
-          ctx.arc(
-            screenX + bird.w * 0.7,
-            player.y + bird.h * 0.4,
-            2,
-            0,
-            Math.PI * 2
-          );
-          ctx.fill();
-          
-          // Desenhar nome do jogador
-          if (player.name) {
-            ctx.fillStyle = 'white';
-            ctx.font = '16px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(player.name, screenX + bird.w / 2, player.y - 10);
-          }
+        // Verificar se está dentro da área visível com padding
+        if (screenX > -RENDER_CONFIG.VIEWPORT_PADDING && 
+            screenX < canvas.width + RENDER_CONFIG.VIEWPORT_PADDING) {
+          visiblePlayers.push({
+            id,
+            player,
+            screenX,
+            distance: Math.abs(player.worldX - bird.worldX)
+          });
         }
       }
     }
   }
+  
+  // Ordenar por distância e limitar número de jogadores renderizados
+  visiblePlayers
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, RENDER_CONFIG.MAX_PLAYERS_RENDERED)
+    .forEach(({id, player, screenX}) => {
+      // Usar posição em cache se disponível e recente
+      const cached = playerPositionCache.get(id);
+      const y = cached && now - cached.timestamp < RENDER_CONFIG.PLAYER_CACHE_TIME
+        ? cached.y
+        : player.y;
+      
+      // Atualizar cache
+      playerPositionCache.set(id, {
+        y: player.y,
+        timestamp: now
+      });
+      
+      // Desenhar jogador
+      const gradient = ctx.createRadialGradient(
+        screenX + bird.w/2, y + bird.h/2, 0,
+        screenX + bird.w/2, y + bird.h/2, bird.w
+      );
+      gradient.addColorStop(0, "#4169E1");
+      gradient.addColorStop(1, "#1E90FF");
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(
+        screenX + bird.w/2,
+        y + bird.h/2,
+        bird.w/2,
+        bird.h/2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      
+      // Olho do pássaro
+      ctx.fillStyle = "black";
+      ctx.beginPath();
+      ctx.arc(
+        screenX + bird.w * 0.7,
+        y + bird.h * 0.4,
+        2,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      
+      // Nome do jogador
+      if (player.name) {
+        ctx.fillStyle = 'white';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.name, screenX + bird.w / 2, y - 10);
+      }
+    });
 }
 
+// Otimizar sendPlayerUpdate
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 50; // Enviar atualizações a cada 50ms
+
 function sendPlayerUpdate() {
+  const now = Date.now();
+  if (now - lastUpdateTime < UPDATE_INTERVAL) return;
+  
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({
       type: 'update',
@@ -305,6 +352,7 @@ function sendPlayerUpdate() {
       name: playerName,
       isDead: gameOver
     }));
+    lastUpdateTime = now;
   }
 }
 
