@@ -373,8 +373,10 @@ function startGame() {
   WORLD.viewportX = 0;
 
   // Usar a URL do WebSocket do ambiente ou fallback para localhost
-  const url = window.location.hostname;
-  const wsUrl = `ws://${url}:8080`;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname;
+  const wsUrl = `${protocol}//${host}/ws`;
+  
   socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {

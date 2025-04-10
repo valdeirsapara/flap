@@ -1,0 +1,25 @@
+# Configuração para arquivos shell
+*.sh text eol=lf
+
+# Configuração para arquivos de texto
+*.txt text
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.conf text
+
+# Configuração para arquivos de código
+*.js text
+*.html text
+*.css text
+*.py text
+
+# Configuração para arquivos binários
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary 
