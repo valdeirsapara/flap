@@ -372,10 +372,9 @@ function startGame() {
   bird.worldX = 150;
   WORLD.viewportX = 0;
 
-  // Usar a URL do WebSocket do ambiente ou fallback para localhost
+  // Detectar protocolo (http/https) e usar ws/wss correspondente
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname;
-  const wsUrl = `${protocol}//${host}`;
+  const wsUrl = `${protocol}//${window.location.hostname}/ws/`;
   
   socket = new WebSocket(wsUrl);
 
@@ -389,6 +388,24 @@ function startGame() {
       score: score,
       isDead: gameOver
     }));
+  };
+
+  socket.onerror = (error) => {
+    console.error('Erro na conexão WebSocket:', error);
+    alert('Erro ao conectar com o servidor. Tente novamente mais tarde.');
+    gameStarted = false;
+    startScreen.style.display = "block";
+    canvas.style.display = "none";
+  };
+
+  socket.onclose = (event) => {
+    console.log('Conexão WebSocket fechada:', event.code, event.reason);
+    if (!event.wasClean) {
+      alert('Conexão perdida com o servidor. Tente novamente mais tarde.');
+      gameStarted = false;
+      startScreen.style.display = "block";
+      canvas.style.display = "none";
+    }
   };
 
   socket.onmessage = (event) => {
