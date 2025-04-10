@@ -1,25 +1,28 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-    networks:
-      - app-network
-
   websocket:
-    build: .
-    command: node server.js
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
-    environment:
-      - NODE_ENV=production
     networks:
-      - app-network
+      - flap-network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - websocket
+    networks:
+      - flap-network
+    environment:
+      - WEBSOCKET_URL=ws://websocket
 
 networks:
-  app-network:
+  flap-network:
     driver: bridge 
