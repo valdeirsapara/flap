@@ -132,25 +132,20 @@ function drawPipes() {
     
     // Só desenhar canos que estão visíveis na tela
     if (screenX > -pipe.width && screenX < canvas.width) {
-      // Calcular cor baseada na dificuldade
-      const difficultyColor = Math.floor(pipe.difficulty * 255);
-      const pipeColor = `rgb(117, ${195 - difficultyColor}, 44)`;
-      const borderColor = `rgb(85, ${120 - difficultyColor}, 33)`;
-      
       // Desenhar cano superior
-      ctx.fillStyle = pipeColor;
+      ctx.fillStyle = "#75c32c";
       ctx.fillRect(screenX, 0, pipe.width, pipe.top);
       
       // Borda do cano superior
-      ctx.fillStyle = borderColor;
+      ctx.fillStyle = "#557821";
       ctx.fillRect(screenX - 2, pipe.top - 20, pipe.width + 4, 20);
       
       // Desenhar cano inferior
-      ctx.fillStyle = pipeColor;
+      ctx.fillStyle = "#75c32c";
       ctx.fillRect(screenX, pipe.top + pipe.gapHeight, pipe.width, canvas.height - (pipe.top + pipe.gapHeight));
       
       // Borda do cano inferior
-      ctx.fillStyle = borderColor;
+      ctx.fillStyle = "#557821";
       ctx.fillRect(screenX - 2, pipe.top + pipe.gapHeight, pipe.width + 4, 20);
     }
   });
@@ -179,6 +174,18 @@ function updatePipes() {
       if (!pipe.passed && bird.worldX > pipe.x + pipe.width) {
         score++;
         pipe.passed = true;
+        
+        // Enviar atualização para o servidor
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'update',
+            playerId,
+            x: bird.worldX,
+            y: bird.y,
+            score: score,
+            isDead: gameOver
+          }));
+        }
       }
     });
   }
