@@ -260,7 +260,8 @@ function startGame() {
   canvas.style.display = "block";
 
   // Usar a URL do WebSocket do ambiente ou fallback para localhost
-  const wsUrl = window.WEBSOCKET_URL || 'ws://localhost:8080';
+  const url = window.location.hostname;
+  const wsUrl = `ws://${url}:8080`;
   socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {
