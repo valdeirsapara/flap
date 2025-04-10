@@ -3,22 +3,29 @@ const server = new WebSocket.Server({ port: 8080 });
 
 // Configurações do jogo
 const GAME_CONFIG = {
-  PIPE_SPACING: 300, // Espaço entre os canos
+  PIPE_SPACING: 200, // Reduzido de 300 para 200 para canos mais próximos
   PIPE_WIDTH: 50,    // Largura dos canos
   GAP_HEIGHT: 150,   // Altura do espaço entre os canos
   MIN_PIPE_HEIGHT: 50, // Altura mínima do cano
   WORLD_SPEED: 2,    // Velocidade do mundo
-  INITIAL_PIPES: 10  // Número inicial de canos
+  INITIAL_PIPES: 10,  // Número inicial de canos
+  MAX_PIPE_HEIGHT: 400, // Altura máxima do cano
+  DIFFICULTY_INCREASE: 0.1, // Aumento de dificuldade por cano
+  MIN_GAP_HEIGHT: 100, // Altura mínima do espaço entre canos
+  MAX_GAP_HEIGHT: 200  // Altura máxima do espaço entre canos
 };
 
 let players = {};
 let gameState = {
   pipes: [],
-  lastPipeX: 800 // Posição X do último cano
+  lastPipeX: 300 // Posição X do último cano - mais próximo do início
 };
 
 // Gerar canos iniciais
 function generateInitialPipes() {
+  gameState.pipes = []; // Limpar canos existentes
+  gameState.lastPipeX = 300; // Resetar posição inicial
+  
   for (let i = 0; i < GAME_CONFIG.INITIAL_PIPES; i++) {
     const pipeX = gameState.lastPipeX + GAME_CONFIG.PIPE_SPACING;
     const pipeTop = Math.floor(Math.random() * (400 - GAME_CONFIG.MIN_PIPE_HEIGHT * 2 - GAME_CONFIG.GAP_HEIGHT) + GAME_CONFIG.MIN_PIPE_HEIGHT);
@@ -38,14 +45,29 @@ function generateInitialPipes() {
 // Gerar um novo cano
 function generateNewPipe() {
   const pipeX = gameState.lastPipeX + GAME_CONFIG.PIPE_SPACING;
-  const pipeTop = Math.floor(Math.random() * (400 - GAME_CONFIG.MIN_PIPE_HEIGHT * 2 - GAME_CONFIG.GAP_HEIGHT) + GAME_CONFIG.MIN_PIPE_HEIGHT);
+  
+  // Aumentar dificuldade com base no número de canos gerados
+  const difficulty = Math.min(1, gameState.pipes.length * GAME_CONFIG.DIFFICULTY_INCREASE);
+  
+  // Calcular altura do gap com base na dificuldade
+  const gapHeight = Math.max(
+    GAME_CONFIG.MIN_GAP_HEIGHT,
+    GAME_CONFIG.MAX_GAP_HEIGHT - (difficulty * (GAME_CONFIG.MAX_GAP_HEIGHT - GAME_CONFIG.MIN_GAP_HEIGHT))
+  );
+  
+  // Calcular altura do cano superior com base na dificuldade
+  const maxTop = GAME_CONFIG.MAX_PIPE_HEIGHT - gapHeight - GAME_CONFIG.MIN_PIPE_HEIGHT;
+  const pipeTop = Math.floor(
+    Math.random() * (maxTop - GAME_CONFIG.MIN_PIPE_HEIGHT) + GAME_CONFIG.MIN_PIPE_HEIGHT
+  );
   
   gameState.pipes.push({
     x: pipeX,
     top: pipeTop,
     width: GAME_CONFIG.PIPE_WIDTH,
-    gapHeight: GAME_CONFIG.GAP_HEIGHT,
-    passed: false
+    gapHeight: gapHeight,
+    passed: false,
+    difficulty: difficulty // Adicionar informação de dificuldade para efeitos visuais
   });
   
   gameState.lastPipeX = pipeX;
@@ -53,25 +75,11 @@ function generateNewPipe() {
 
 // Atualizar estado do jogo
 function updateGameState() {
-  // Mover canos
-  gameState.pipes.forEach(pipe => {
-    pipe.x -= GAME_CONFIG.WORLD_SPEED;
-  });
-  
-  // Remover canos que já passaram
-  gameState.pipes = gameState.pipes.filter(pipe => pipe.x > -GAME_CONFIG.PIPE_WIDTH);
-  
-  // Adicionar novos canos se necessário
-  if (gameState.pipes.length < GAME_CONFIG.INITIAL_PIPES) {
-    generateNewPipe();
-  }
+  // Não fazer nada - os canos serão atualizados pelo cliente
 }
 
 // Gerar canos iniciais
 generateInitialPipes();
-
-// Atualizar estado do jogo a cada 16ms (aproximadamente 60 FPS)
-setInterval(updateGameState, 16);
 
 server.on('connection', (socket) => {
   console.log('Novo jogador conectado.');

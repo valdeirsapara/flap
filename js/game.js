@@ -10,6 +10,8 @@ const WORLD = {
   width: 10000,  // Largura total do mundo do jogo
   height: 800,   // Altura total do mundo do jogo
   viewportX: 0,  // Posição X da câmera
+  viewportY: 0,  // Posição Y da câmera
+  followPlayer: true // Nova propriedade para controlar se a câmera segue o jogador
 };
 
 // Ajustar canvas para tela cheia
@@ -39,10 +41,11 @@ const bird = {
   w: 20,
   h: 20,
   velocity: 0,
-  worldX: 0,  // Posição real no mundo
+  worldX: 150, // Posição inicial fixa
+  hasStarted: false,
   draw() {
-    // Converter coordenada do mundo para coordenada da tela
-    const screenX = this.worldX - WORLD.viewportX;
+    // Sempre desenhar o pássaro na mesma posição até o jogo começar
+    const screenX = this.hasStarted ? (this.worldX - WORLD.viewportX) : 150;
     
     // Desenhar pássaro com gradiente
     const gradient = ctx.createRadialGradient(
@@ -76,12 +79,26 @@ const bird = {
       Math.PI * 2
     );
     ctx.fill();
+
+    // Desenhar o nome do jogador
+    ctx.fillStyle = 'white';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(playerName, screenX + this.w/2, this.y - 10);
+
+    // Desenhar mensagem de instrução se o jogo ainda não começou
+    if (gameStarted && !this.hasStarted) {
+      ctx.fillStyle = 'white';
+      ctx.font = '20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Clique para começar!', canvas.width / 2, canvas.height / 2);
+    }
   },
   update() {
-    if (gameStarted && !gameOver) {
+    if (gameStarted && !gameOver && this.hasStarted) {
       this.velocity += gravity;
       this.y += this.velocity;
-      this.worldX += 2; // Movimento constante para a direita
+      this.worldX += 2;
       
       // Atualizar a viewport para seguir o pássaro
       WORLD.viewportX = this.worldX - canvas.width / 3;
@@ -91,13 +108,17 @@ const bird = {
   },
   flap() {
     if (gameStarted && !gameOver) {
+      if (!this.hasStarted) {
+        this.hasStarted = true;
+      }
       this.velocity = jump;
     }
   },
   reset() {
     this.y = 150;
-    this.worldX = 0;
+    this.worldX = 150; // Manter posição inicial consistente
     this.velocity = 0;
+    this.hasStarted = false;
     WORLD.viewportX = 0;
   }
 };
@@ -106,35 +127,45 @@ function drawPipes() {
   if (!gameStarted || !gameState) return;
   
   gameState.pipes.forEach(pipe => {
-    // Converter coordenada do mundo para coordenada da tela
-    const screenX = pipe.x - WORLD.viewportX;
+    // Não mover os canos até o jogo começar
+    const screenX = bird.hasStarted ? pipe.x - WORLD.viewportX : pipe.x;
     
     // Só desenhar canos que estão visíveis na tela
     if (screenX > -pipe.width && screenX < canvas.width) {
+      // Calcular cor baseada na dificuldade
+      const difficultyColor = Math.floor(pipe.difficulty * 255);
+      const pipeColor = `rgb(117, ${195 - difficultyColor}, 44)`;
+      const borderColor = `rgb(85, ${120 - difficultyColor}, 33)`;
+      
       // Desenhar cano superior
-      ctx.fillStyle = "#75c32c";
+      ctx.fillStyle = pipeColor;
       ctx.fillRect(screenX, 0, pipe.width, pipe.top);
       
       // Borda do cano superior
-      ctx.fillStyle = "#557821";
+      ctx.fillStyle = borderColor;
       ctx.fillRect(screenX - 2, pipe.top - 20, pipe.width + 4, 20);
       
       // Desenhar cano inferior
-      ctx.fillStyle = "#75c32c";
+      ctx.fillStyle = pipeColor;
       ctx.fillRect(screenX, pipe.top + pipe.gapHeight, pipe.width, canvas.height - (pipe.top + pipe.gapHeight));
       
       // Borda do cano inferior
-      ctx.fillStyle = "#557821";
+      ctx.fillStyle = borderColor;
       ctx.fillRect(screenX - 2, pipe.top + pipe.gapHeight, pipe.width + 4, 20);
     }
   });
 }
 
 function updatePipes() {
-  if (!gameStarted || gameOver) return;
+  // Não fazer nada até o jogo começar
+  if (!gameStarted || gameOver || !bird.hasStarted) return;
   
   if (gameState && gameState.pipes) {
     gameState.pipes.forEach(pipe => {
+      if (bird.hasStarted) {
+        pipe.x -= 2; // Mover canos apenas quando o jogo começar
+      }
+      
       // Verificar colisão
       if (
         bird.worldX < pipe.x + pipe.width &&
@@ -151,18 +182,6 @@ function updatePipes() {
       }
     });
   }
-}
-
-function drawPlayerName() {
-  if (!gameStarted) return;
-  
-  // Converter coordenada do mundo para coordenada da tela
-  const screenX = bird.worldX - WORLD.viewportX;
-  
-  ctx.fillStyle = "white";
-  ctx.font = "16px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(playerName, screenX + bird.w / 2, bird.y - 10);
 }
 
 function drawScore() {
@@ -183,7 +202,7 @@ function drawOtherPlayers() {
       // Só desenhar jogadores que estão vivos
       if (player && player.worldX !== undefined && player.y !== undefined && !player.isDead) {
         // Converter coordenada do mundo para coordenada da tela
-        const screenX = player.worldX - WORLD.viewportX;
+        const screenX = bird.hasStarted ? player.worldX - WORLD.viewportX : player.worldX;
         
         // Só desenhar jogadores visíveis na tela
         if (screenX > -20 && screenX < canvas.width) {
@@ -220,6 +239,7 @@ function drawOtherPlayers() {
           );
           ctx.fill();
           
+          // Desenhar nome do jogador
           if (player.name) {
             ctx.fillStyle = 'white';
             ctx.font = '16px Arial';
@@ -258,6 +278,8 @@ function startGame() {
   gameOver = false;
   startScreen.style.display = "none";
   canvas.style.display = "block";
+  bird.worldX = 150; // Manter posição inicial consistente
+  WORLD.viewportX = 0;
 
   // Usar a URL do WebSocket do ambiente ou fallback para localhost
   const url = window.location.hostname;
@@ -308,7 +330,6 @@ function loop() {
   updatePipes();
   drawPipes();
   drawScore();
-  drawPlayerName();
   drawOtherPlayers();
   
   if (gameStarted && socket && playerId) {
