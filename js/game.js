@@ -147,6 +147,12 @@ function drawPipes() {
       // Borda do cano inferior
       ctx.fillStyle = "#557821";
       ctx.fillRect(screenX - 2, pipe.top + pipe.gapHeight, pipe.width + 4, 20);
+
+      // Se o cano já foi passado, desenhar uma pequena marca
+      if (pipe.passed) {
+        ctx.fillStyle = "#FFD700";
+        ctx.fillRect(screenX + pipe.width - 5, pipe.top + pipe.gapHeight/2, 5, 5);
+      }
     }
   });
 }
@@ -168,12 +174,24 @@ function updatePipes() {
         (bird.y < pipe.top || bird.y + bird.h > pipe.top + pipe.gapHeight)
       ) {
         gameOver = true;
+        // Enviar pontuação final
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'update',
+            playerId,
+            x: bird.worldX,
+            y: bird.y,
+            score: score,
+            isDead: true
+          }));
+        }
+        return;
       }
       
-      // Atualizar pontuação quando passar pelo cano
+      // Verificar se passou completamente pelo cano
       if (!pipe.passed && bird.worldX > pipe.x + pipe.width) {
-        score++;
         pipe.passed = true;
+        score = gameState.pipes.filter(p => p.passed).length; // Conta apenas canos passados
         
         // Enviar atualização para o servidor
         if (socket && socket.readyState === WebSocket.OPEN) {
@@ -194,10 +212,27 @@ function updatePipes() {
 function drawScore() {
   if (!gameStarted) return;
   
+  // Desenhar pontuação atual
   ctx.fillStyle = "white";
-  ctx.font = "20px Arial";
-  ctx.textAlign = "left";
-  ctx.fillText(`Score: ${score}`, 10, 25);
+  ctx.font = "bold 36px Arial"; // Fonte maior e mais destacada
+  ctx.textAlign = "center";
+  ctx.fillText(score.toString(), canvas.width/2, 50); // Pontuação centralizada no topo
+
+  // Desenhar ranking (top 3)
+  if (gameState && gameState.topPlayers) {
+    ctx.font = "16px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("Top 3:", 10, 30);
+    
+    gameState.topPlayers.forEach((player, index) => {
+      const rankColor = index === 0 ? "#FFD700" : // Ouro
+                       index === 1 ? "#C0C0C0" : // Prata
+                       "#CD7F32";                 // Bronze
+      
+      ctx.fillStyle = rankColor;
+      ctx.fillText(`${index + 1}. ${player.name}: ${player.score}`, 10, 55 + (index * 25));
+    });
+  }
 }
 
 function drawOtherPlayers() {
@@ -283,9 +318,10 @@ function startGame() {
   playerName = name;
   gameStarted = true;
   gameOver = false;
+  score = 0; // Resetar pontuação
   startScreen.style.display = "none";
   canvas.style.display = "block";
-  bird.worldX = 150; // Manter posição inicial consistente
+  bird.worldX = 150;
   WORLD.viewportX = 0;
 
   // Usar a URL do WebSocket do ambiente ou fallback para localhost
@@ -328,6 +364,11 @@ function loop() {
     ctx.font = '30px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+    
+    // Mostrar pontuação final
+    ctx.font = '20px Arial';
+    ctx.fillText(`Pontuação: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
+    
     restartBtn.style.display = 'inline-block';
     return;
   }
@@ -352,12 +393,20 @@ function handleInput() {
 }
 
 function restartGame() {
-  score = 0;
+  score = 0; // Resetar pontuação
   gameOver = false;
   frame = 0;
   pipes = [];
   bird.reset();
   restartBtn.style.display = "none";
+  
+  // Resetar estado dos canos
+  if (gameState && gameState.pipes) {
+    gameState.pipes.forEach(pipe => {
+      pipe.passed = false;
+    });
+  }
+  
   loop();
 }
 
